@@ -1,0 +1,23 @@
+[project]
+name = "dava"
+version = "0.1.0"
+description = "Command-line interface for DaVinci Resolve"
+readme = "README.md"
+authors = [
+    { name = "Narender Kumar" }
+]
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+dava = "dava.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.9.27,<0.10.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "lupa>=2.8",
+    "pytest>=9.1.1",
+]

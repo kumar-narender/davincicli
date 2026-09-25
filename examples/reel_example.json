@@ -1,0 +1,74 @@
+{
+  "project": "My Project",
+  "clear": true,
+  "timeline": "My Reel",
+  "resolution": [
+    1080,
+    1920
+  ],
+  "intro": {
+    "clip": "hero.jpg",
+    "frames": 72,
+    "title": "MY\nTRIP"
+  },
+  "shots": [
+    {
+      "clip": "video1.mp4",
+      "in": 50,
+      "frames": 84,
+      "transition": "Crash Zoom",
+      "grade": false,
+      "zoom": false
+    },
+    {
+      "clip": "photo1.jpg",
+      "frames": 26,
+      "transition": "Glow"
+    },
+    {
+      "clip": "photo2.jpg",
+      "frames": 26,
+      "transition": "Pan Left",
+      "caption": "GOLDEN HOUR",
+      "cdl": {
+        "Slope": "1.1 1.1 1.1",
+        "Offset": "-0.03 -0.03 -0.03",
+        "Power": "0.9 0.9 0.9",
+        "Saturation": 1.05
+      }
+    },
+    {
+      "clip": "video2.mov",
+      "in": 62,
+      "frames": 60,
+      "transition": "Tunnel of Light"
+    },
+    {
+      "clip": "photo3.jpg",
+      "frames": 26,
+      "transition": "Spin"
+    }
+  ],
+  "outro": {
+    "text": "THANKS",
+    "frames": 64
+  },
+  "transition_frames": 10,
+  "grade": {
+    "Slope": "1.08 1.04 0.96",
+    "Offset": "-0.02 -0.02 0.0",
+    "Power": "1.0 1.0 1.0",
+    "Saturation": 1.1
+  },
+  "look": {
+    "preset": "travel",
+    "name": "My Travel Look"
+  },
+  "zoom": true,
+  "render": {
+    "dir": "~/Desktop",
+    "name": "My Reel",
+    "format": "mp4",
+    "codec": "H264"
+  }
+}
