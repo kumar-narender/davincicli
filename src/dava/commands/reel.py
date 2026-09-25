@@ -30,7 +30,8 @@ import json
 import os
 
 from ..connect import ResolveError
-from ..helpers import apply_render_settings, current_project, find_clip, timelines
+from ..bridge import iter_clips
+from ..helpers import apply_render_settings, current_project, timelines
 from .grading import write_look_file
 from .overlay import add_text_overlay
 
@@ -71,7 +72,25 @@ def _items(timeline):
             for item in timeline.GetItemListInTrack(kind, track) or []]
 
 
-def _preflight(resolve, project, spec):
+def clip_index(project):
+    """Walk the media pool once: name -> [clips]. Each lookup over a bridge is a round trip, so the build
+    resolves every shot from this index instead of walking the pool per shot."""
+    index = {}
+    for _, clip in iter_clips(project.GetMediaPool().GetRootFolder()):
+        index.setdefault(clip.GetName(), []).append(clip)
+    return index
+
+
+def lookup(index, name):
+    clips = index.get(name, [])
+    if not clips:
+        raise ResolveError(f"No media pool clip named {name!r}.")
+    if len(clips) > 1:
+        raise ResolveError(f"Clip name {name!r} is ambiguous ({len(clips)} clips); rename one in the media pool.")
+    return clips[0]
+
+
+def _preflight(resolve, project, spec, index):
     """Check everything that can be checked before the first change to the project."""
     wanted = spec.get("project")
     if wanted is not None and project.GetName() != wanted:
@@ -83,7 +102,7 @@ def _preflight(resolve, project, spec):
     missing = []
     for name in dict.fromkeys(names):
         try:
-            find_clip(resolve, name)
+            lookup(index, name)
         except ResolveError as exc:
             missing.append(str(exc))
     if missing:
@@ -107,7 +126,8 @@ def _clear(timeline):
 def build(resolve, session, spec):
     project = current_project(resolve)
     media_pool = project.GetMediaPool()
-    _preflight(resolve, project, spec)
+    index = clip_index(project)
+    _preflight(resolve, project, spec, index)
     timeline = _timeline(project, spec)
     if spec.get("clear"):
         _clear(timeline)
@@ -125,7 +145,7 @@ def build(resolve, session, spec):
     def place(name, track, record, source_in=None, frames=None, shot_grade=True, shot_zoom=True, shot_cdl=None):
         while timeline.GetTrackCount("video") < track:
             timeline.AddTrack("video")
-        info = {"mediaPoolItem": find_clip(resolve, name), "trackIndex": track, "recordFrame": record, "mediaType": 1}
+        info = {"mediaPoolItem": lookup(index, name), "trackIndex": track, "recordFrame": record, "mediaType": 1}
         if source_in is not None:
             info.update({"startFrame": source_in, "endFrame": source_in + frames - 1})
         items = media_pool.AppendToTimeline([info])

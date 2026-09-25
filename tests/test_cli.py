@@ -221,7 +221,7 @@ def test_lut_export_constants_exist_in_resolve_api():
 
 # Standard-library names that look like API calls to the scan below.
 STDLIB_CALLS = {"ArgumentParser", "ArgumentTypeError", "Popen", "StringIO", "RawDescriptionHelpFormatter", "ZipFile",
-                "DefaultSelector", "TemporaryDirectory", "ArgumentError"}
+                "DefaultSelector", "TemporaryDirectory", "ArgumentError", "ThreadPoolExecutor"}
 
 
 @pytest.mark.skipif(not os.path.exists(STUB), reason="Resolve scripting SDK not installed")

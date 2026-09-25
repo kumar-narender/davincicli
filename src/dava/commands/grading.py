@@ -236,6 +236,31 @@ def register(registry):
     p.add_argument("-w", "--wait", action="store_true", help="wait for the render and check the file")
     p.set_defaults(func=cmd_instagram, read_only=False, always_json=True)
 
+    register_photos(registry)
+
     p = registry.action("deliver", "check", "check video files against Instagram Reels specs (needs ffprobe)")
     p.add_argument("files", nargs="+", metavar="FILE")
     p.set_defaults(func=cmd_check, needs_resolve=False, read_only=True, always_json=True)
+
+
+def cmd_photos_grade(resolve, args):
+    from .. import photos
+
+    return photos.grade_photos(photos.collect(args.paths), os.path.abspath(os.path.expanduser(args.out)),
+                               look=None if args.look == "none" else args.look, saturation=args.saturation,
+                               suffix=args.suffix, jobs=args.jobs, quality=args.quality, profile=args.profile)
+
+
+def register_photos(registry):
+    p = registry.action("photos", "grade", "grade photos (files or folders) outside Resolve: measured dehaze and "
+                        "exposure, color-managed to sRGB, plus a look (needs ImageMagick 7)",
+                        group_help="grade still photos with the same looks")
+    p.add_argument("paths", nargs="+", metavar="PATH")
+    p.add_argument("-o", "--out", required=True, help="output folder")
+    p.add_argument("-l", "--look", default="travel", choices=sorted(looklut.PRESETS) + ["none"])
+    p.add_argument("--saturation", type=float, default=1.05, help="saturation before the look (default: 1.05)")
+    p.add_argument("--suffix", default=" graded", help="added to each file name (default: ' graded')")
+    p.add_argument("-j", "--jobs", type=int, default=8, help="photos graded in parallel (default: 8)")
+    p.add_argument("--quality", type=int, default=95, help="JPEG quality (default: 95)")
+    p.add_argument("--profile", help="sRGB ICC profile (default: the system one)")
+    p.set_defaults(func=cmd_photos_grade, needs_resolve=False, read_only=False, always_json=True)
