@@ -47,6 +47,8 @@ CLIP_COLORS = [
     "Blue", "Purple", "Violet", "Pink", "Tan", "Beige", "Brown", "Chocolate",
 ]
 
+STILL_EXTENSIONS = (".jpg", ".jpeg", ".png", ".tif", ".tiff", ".heic", ".dng", ".exr", ".dpx", ".bmp", ".tga",
+                    ".webp")
 FAILED_JOB_STATES = {"Failed", "Cancelled", "Background Render Cancelled", "Remote Render Cancelled"}
 
 
@@ -158,10 +160,22 @@ def cmd_media_import(resolve, args):
     if missing:
         raise ResolveError(f"Path(s) not found: {', '.join(missing)}")
     media_pool = current_project(resolve).GetMediaPool()
-    clips = media_pool.ImportMedia([{"FilePath": p} for p in paths])
-    if not clips:
-        # Resolve's Lua API (used by the free-edition bridge) only accepts the plain list of paths.
-        clips = media_pool.ImportMedia(paths)
+    # Resolve merges numbered stills that arrive in one call (IMG_0001.jpg, IMG_0002.jpg) into a single image
+    # sequence clip, so each still gets its own call; `media import-sequence` imports real sequences.
+    is_still = lambda path: os.path.isfile(path) and path.lower().endswith(STILL_EXTENSIONS)
+    batches = []
+    for path in paths:
+        if is_still(path) or not batches or is_still(batches[-1][0]):
+            batches.append([path])
+        else:
+            batches[-1].append(path)
+    clips = []
+    for batch in batches:
+        imported = media_pool.ImportMedia([{"FilePath": p} for p in batch])
+        if not imported:
+            # Resolve's Lua API (used by the free-edition bridge) only accepts the plain list of paths.
+            imported = media_pool.ImportMedia(batch)
+        clips += imported or []
     if not clips:
         raise ResolveError("Resolve did not import any media from the given paths.")
     if args.append:

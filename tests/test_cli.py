@@ -123,6 +123,21 @@ def test_media_import_and_append(resolve, capsys, tmp_path):
     assert len(pool.appended) == 1
 
 
+def test_media_import_keeps_numbered_stills_apart(resolve, capsys, tmp_path):
+    # Resolve merges numbered stills that arrive in one ImportMedia call into one image sequence clip.
+    paths = [tmp_path / name for name in ("IMG_0001.jpg", "IMG_0002.jpg", "a.mov", "b.mov")]
+    for path in paths:
+        path.write_bytes(b"")
+    pool = resolve.pm.current.media_pool
+    calls = []
+    real_import = pool.ImportMedia
+    pool.ImportMedia = lambda infos: calls.append([info["FilePath"] for info in infos]) or real_import(infos)
+    code, out, _ = run(resolve, capsys, "--json", "media", "import", *map(str, paths))
+    assert code == 0
+    assert json.loads(out) == ["IMG_0001.jpg", "IMG_0002.jpg", "a.mov", "b.mov"]
+    assert calls == [[str(paths[0])], [str(paths[1])], [str(paths[2]), str(paths[3])]]
+
+
 def test_media_import_missing_path(resolve, capsys, tmp_path):
     code, _, err = run(resolve, capsys, "media", "import", str(tmp_path / "nope.mov"))
     assert code == 1

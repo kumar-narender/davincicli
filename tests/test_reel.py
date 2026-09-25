@@ -149,7 +149,7 @@ def test_reel_build_stacks_shots_and_renders(tmp_path, capsys, monkeypatch):
     parts["timeline"].set(GetName="Reel", SetSettings=True)
     spec = {
         "timeline": "Reel", "resolution": [1080, 1920], "project": "Promo", "clear": True,
-        "intro": {"clip": "hero.jpg", "frames": 72, "title": "HELLO"},
+        "intro": {"clip": "hero.jpg", "frames": 72, "title": "HELLO", "grade": False},
         "shots": [{"clip": "a.jpg", "frames": 26, "transition": "Crash Zoom", "caption": "BELLS"},
                   {"clip": "b.mov", "in": 62, "frames": 60, "transition": "Glow", "grade": False, "zoom": False}],
         "outro": {"text": "NAMASTE", "frames": 64},
@@ -169,6 +169,7 @@ def test_reel_build_stacks_shots_and_renders(tmp_path, capsys, monkeypatch):
     assert a_item.called("AddTransition") == [({"type": "Crash Zoom", "category": "fusion", "position": "start",
                                                 "alignment": "right", "duration": 10},)]
     assert a_item.called("SetCDL")[0][0]["Saturation"] == 1.3
+    assert placed[0][2].called("SetCDL") == []  # intro marked "grade": false keeps its own grade
     b_item = placed[2][2]
     assert b_item.called("SetCDL") == []  # already graded footage keeps its grade
     assert b_item.called("SetProperties") == [({"Scaling": 3},)]  # and no dynamic zoom
@@ -212,3 +213,92 @@ def test_reel_build_refuses_other_project_and_non_empty_timeline(tmp_path, capsy
     assert main(["reel", "build", str(spec)], resolve=resolve) == 1
     assert "already has 2 clip(s)" in capsys.readouterr().err
     assert parts["timeline"].called("DeleteClips") == []
+
+
+# --- reel timeline: never resize the current timeline (it deadlocked Resolve 21.1) ------------
+
+
+def sized(name, uid, width, height, log, **returns):
+    size = {"w": str(width), "h": str(height)}
+
+    def resize(settings):
+        log.append(("resize", name))
+        size.update(w=settings["timelineResolutionWidth"], h=settings["timelineResolutionHeight"])
+        return True
+
+    return Rec(name, GetName=name, GetUniqueId=uid, SetSettings=resize,
+               GetSettings=lambda: {"timelineResolutionWidth": size["w"], "timelineResolutionHeight": size["h"],
+                                    "timelineFrameRate": 30}, **returns)
+
+
+def switching_project(tls, current, log, **returns):
+    state = {"current": current}
+
+    def open_timeline(timeline):
+        log.append(("open", timeline.GetName()))
+        state["current"] = timeline
+        return True
+
+    project = Rec("project", GetTimelineCount=len(tls), GetTimelineByIndex=lambda i: tls[i - 1],
+                  GetCurrentTimeline=lambda: state["current"], SetCurrentTimeline=open_timeline, **returns)
+    return project, state
+
+
+def test_reel_timeline_copies_a_timeline_that_already_has_the_size():
+    from dava.commands import reel
+    log = []
+    copy = sized("Reel v2", "tl-2", 1080, 1920, log)
+    old = sized("Old", "tl-1", 1080, 1920, log, DuplicateTimeline=lambda name: copy)
+    project, _ = switching_project([old], old, log)
+    assert reel._timeline(project, {"timeline": "Reel v2", "resolution": [1080, 1920]}) == (copy, True)
+    assert old.called("DuplicateTimeline") == [("Reel v2",)]
+    assert log == [("open", "Reel v2")]  # no resize at all
+
+
+def test_reel_timeline_resizes_only_while_another_timeline_is_current():
+    from dava.commands import reel
+    log = []
+    reel_tl = sized("Reel", "tl-1", 1920, 1080, log)
+    other = sized("Other", "tl-2", 1920, 1080, log)
+    project, _ = switching_project([reel_tl, other], reel_tl, log)
+    assert reel._timeline(project, {"timeline": "Reel", "resolution": [1080, 1920]}) == (reel_tl, False)
+    assert log == [("open", "Other"), ("resize", "Reel"), ("open", "Reel")]
+    log.clear()
+    reel._timeline(project, {"timeline": "Reel", "resolution": [1080, 1920]})
+    assert log == [("open", "Reel")]  # already the right size: no resize
+
+
+def test_reel_timeline_new_without_template_is_resized_before_it_is_opened():
+    from dava.commands import reel
+    log = []
+    other = sized("Other", "tl-1", 1920, 1080, log)
+    new = sized("Reel", "tl-2", 1920, 1080, log)
+    state = {}
+
+    def create(name):
+        log.append(("create", name))
+        state["current"] = new  # Resolve opens a timeline it creates
+        return new
+
+    project, state = switching_project([other], other, log, GetMediaPool=Rec("pool", CreateEmptyTimeline=create))
+    assert reel._timeline(project, {"timeline": "Reel", "resolution": [1080, 1920]}) == (new, False)
+    assert log == [("create", "Reel"), ("open", "Other"), ("resize", "Reel"), ("open", "Reel")]
+
+
+def test_reel_build_empties_the_copy_and_leaves_the_template_alone(tmp_path, capsys):
+    resolve, parts = rec_resolve()
+    log = []
+    copied_item = Rec("copied", GetName="old shot")
+    copy = sized("Reel", "tl-2", 1080, 1920, log, GetStartFrame=86400, GetTrackCount=lambda kind: 1,
+                 GetItemListInTrack=lambda kind, index: [copied_item] if kind == "video" else [])
+    template = parts["timeline"]
+    template.set(GetSettings={"timelineResolutionWidth": "1080", "timelineResolutionHeight": "1920"},
+                 DuplicateTimeline=lambda name: copy)
+    parts["mediapool"].set(AppendToTimeline=lambda infos: [Rec("item", GetDuration=26)])
+    spec = tmp_path / "s.json"
+    spec.write_text(json.dumps({"timeline": "Reel", "resolution": [1080, 1920], "shots": [{"clip": "a.mov"}]}))
+    assert main(["reel", "build", str(spec)], resolve=resolve) == 0, capsys.readouterr()
+    assert copy.called("DeleteClips") == [([copied_item], False)]
+    assert copy.called("DeleteMarkersByColor") == [("All",)]
+    assert template.called("DeleteClips") == [] and template.called("SetSettings") == []
+    assert "resize" not in [entry[0] for entry in log]

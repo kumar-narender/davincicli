@@ -7,7 +7,8 @@ below. Transitions go on each shot's start edge (right-aligned), which works ove
 Spec (JSON):
 {
   "project": "My Project",                 optional; the build refuses to run in any other open project
-  "timeline": "My Reel",                   created if missing
+  "timeline": "My Reel",                   created if missing (as an emptied copy of a timeline that already has
+                                           the resolution: resizing the current timeline can hang Resolve)
   "clear": true,                           required to empty an existing timeline that has clips
   "resolution": [1080, 1920],              optional custom timeline resolution
   "intro": {"clip": "hero.jpg", "frames": 72, "title": "HELLO\\nWORLD"},
@@ -47,23 +48,48 @@ def load_spec(path):
     return spec
 
 
+def _size(timeline):
+    settings = timeline.GetSettings() or {}
+    return [str(settings.get("timelineResolutionWidth")), str(settings.get("timelineResolutionHeight"))]
+
+
 def _timeline(project, spec):
+    """Open (or make) the reel timeline at the spec's resolution; returns (timeline, copied).
+
+    Resizing the current timeline deadlocked Resolve 21.1 (its main thread waited for Fusion's render lock while
+    a Fusion render waited for the main thread), so the size is only changed when it differs, and never on the
+    current timeline: a new timeline starts as a copy of one that already has the size (copied=True, the build
+    empties it), otherwise another timeline is made current while this one is resized.
+    """
     name = spec.get("timeline", "Reel")
-    for timeline in timelines(project):
-        if timeline.GetName() == name:
-            break
-    else:
-        timeline = project.GetMediaPool().CreateEmptyTimeline(name)
+    size = [str(v) for v in spec["resolution"]] if spec.get("resolution") else None
+    others = timelines(project)
+    timeline = next((t for t in others if t.GetName() == name), None)
+    copied = False
+    if timeline is None:
+        current = project.GetCurrentTimeline()
+        template = next((t for t in [current, *others] if t and size and _size(t) == size), None)
+        if template:
+            timeline = template.DuplicateTimeline(name)
+            copied = True
+        else:
+            timeline = project.GetMediaPool().CreateEmptyTimeline(name)
         if not timeline:
             raise ResolveError(f"Could not create timeline {name!r}.")
+    else:
+        others = [t for t in others if t.GetUniqueId() != timeline.GetUniqueId()]
+    if size and _size(timeline) != size:
+        current = project.GetCurrentTimeline()
+        if current and current.GetUniqueId() == timeline.GetUniqueId() and others:
+            if not project.SetCurrentTimeline(others[0]):
+                raise ResolveError(f"Could not switch away from {name!r} to resize it.")
+        width, height = size
+        if not timeline.SetSettings({"useCustomSettings": "1", "timelineResolutionWidth": width,
+                                     "timelineResolutionHeight": height}):
+            raise ResolveError(f"Could not set the timeline resolution to {width}x{height}.")
     if not project.SetCurrentTimeline(timeline):
         raise ResolveError(f"Could not open timeline {name!r}.")
-    if spec.get("resolution"):
-        width, height = spec["resolution"]
-        if not timeline.SetSettings({"useCustomSettings": "1", "timelineResolutionWidth": str(width),
-                                     "timelineResolutionHeight": str(height)}):
-            raise ResolveError(f"Could not set the timeline resolution to {width}x{height}.")
-    return timeline
+    return timeline, copied
 
 
 def _items(timeline):
@@ -128,9 +154,11 @@ def build(resolve, session, spec):
     media_pool = project.GetMediaPool()
     index = clip_index(project)
     _preflight(resolve, project, spec, index)
-    timeline = _timeline(project, spec)
-    if spec.get("clear"):
+    timeline, copied = _timeline(project, spec)
+    if spec.get("clear") or copied:
         _clear(timeline)
+    if copied and not timeline.DeleteMarkersByColor("All"):
+        raise ResolveError(f"Could not remove the markers copied into {timeline.GetName()!r}.")
     start = timeline.GetStartFrame()
     grade = spec.get("grade")
     zoom = spec.get("zoom", True)
@@ -167,7 +195,7 @@ def build(resolve, session, spec):
     intro = spec.get("intro")
     track, record = 1, start
     if intro:
-        place(intro["clip"], 1, start, shot_cdl=intro.get("cdl"))
+        place(intro["clip"], 1, start, shot_grade=intro.get("grade", True), shot_cdl=intro.get("cdl"))
         placed.append({"clip": intro["clip"], "track": 1, "at": 0})
         record = start + intro.get("frames", 72)
         track = 2

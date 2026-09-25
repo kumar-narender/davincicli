@@ -41,14 +41,18 @@ def look(r, g, b, p):
     skin = (hue_band(h, 20, 10, 22) * smoothstep(0.1, 0.2, s) * (1 - smoothstep(0.55, 0.7, s))
             * smoothstep(0.2, 0.35, v) * p.get("skin_protect", 0.0))
     wb = hue_band(h, 218, 22, 50) * protect      # sky: ~168..268 degrees
-    wg = hue_band(h, 42, 12, 28) * protect * (1 - skin)   # gold: ~14..70 degrees
+    gold_reach = p.get("gold_reach", 28)
+    wg = hue_band(h, 42, 12 * gold_reach / 28, gold_reach) * protect * (1 - skin)   # gold: default ~14..70 degrees
     wf = hue_band(h, 112, 22, 45) * protect      # foliage: ~67..157 degrees (yellow-green water stays out)
     h = pull_hue(h, 214, p["sky_shift"] * wb)
     h = pull_hue(h, 40, p["gold_shift"] * wg)
     h = pull_hue(h, 112, p.get("green_shift", 0.0) * wf)
     h = pull_hue(h, 22, p.get("skin_shift", 0.0) * skin)
-    s = (s * (1 + (p["sky_sat"] - 1) * wb) * (1 + (p["gold_sat"] - 1) * wg)
-         * (1 + (p.get("green_sat", 1.0) - 1) * wf) * (1 + (p.get("skin_sat", 1.0) - 1) * skin))
+    # band_vibrance > 0 scales the band boosts down for colors that are already saturated (like a vibrance
+    # control), so vivid lawns, skies and wood cannot be pushed into neon; 0 keeps the original behaviour.
+    room = 1 - p.get("band_vibrance", 0.0) * s
+    s = (s * (1 + (p["sky_sat"] - 1) * wb * room) * (1 + (p["gold_sat"] - 1) * wg * room)
+         * (1 + (p.get("green_sat", 1.0) - 1) * wf * room) * (1 + (p.get("skin_sat", 1.0) - 1) * skin))
     # Colors handled by a band are excluded from the general vibrance; foliage only when its band is in use,
     # so presets without green settings behave exactly as before.
     green_active = p.get("green_sat", 1.0) != 1.0 or p.get("green_shift", 0.0) or p.get("green_deepen", 0.0)
@@ -67,8 +71,9 @@ PRESETS = {
     "bold": {"sky_shift": 0.55, "sky_sat": 1.7, "sky_deepen": 0.08, "gold_shift": 0.4, "gold_sat": 1.6,
              "gold_bright": 0.05, "vibrance": 0.18},
     # Travel photos with people: blues, greens and gold, skin protected and gently warmed.
-    "travel": {"sky_shift": 0.45, "sky_sat": 1.5, "sky_deepen": 0.06, "gold_shift": 0.3, "gold_sat": 1.4,
-               "gold_bright": 0.03, "vibrance": 0.12, "green_shift": 0.18, "green_sat": 1.18, "green_deepen": 0.04,
+    "travel": {"sky_shift": 0.4, "sky_sat": 1.45, "sky_deepen": 0.04, "gold_shift": 0.25, "gold_sat": 1.25,
+               "gold_bright": 0.02, "vibrance": 0.1, "green_shift": 0.15, "green_sat": 1.18, "green_deepen": 0.03,
+               "band_vibrance": 1.0, "gold_reach": 20,
                "skin_protect": 1.0, "skin_shift": 0.15, "skin_sat": 1.06, "skin_bright": 0.02},
 }
 

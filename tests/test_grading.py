@@ -96,3 +96,24 @@ def test_check_instagram_on_real_files(tmp_path):
     result = check_instagram(str(bad))
     joined = " ".join(result["problems"])
     assert not result["ok"] and "9:16" in joined and "yuv420p" in joined and "bt709" in joined and "moov" in joined
+
+
+def test_travel_look_does_not_push_vivid_colors_into_neon():
+    """Regression for the client review: vivid lawns, pond water and deep skies went neon/acid/cobalt."""
+    import colorsys
+    t = looklut.PRESETS["travel"]
+    for vivid in [(0.45, 0.75, 0.15), (0.55, 0.55, 0.12), (0.1, 0.35, 0.85), (0.7, 0.4, 0.2)]:
+        before = colorsys.rgb_to_hsv(*vivid)[1]
+        after = colorsys.rgb_to_hsv(*looklut.look(*vivid, t))[1]
+        assert after - before < 0.06, vivid
+    dull = (0.64, 0.68, 0.77)  # pale sky still gets bluer
+    assert colorsys.rgb_to_hsv(*looklut.look(*dull, t))[1] - colorsys.rgb_to_hsv(*dull)[1] > 0.04
+
+
+@pytest.mark.parametrize("rgb, expected", [
+    ((0.64, 0.68, 0.77), (0.538672, 0.607589, 0.728416)),
+    ((0.55, 0.45, 0.25), (0.5665, 0.41715, 0.11845)),
+])
+def test_vibrant_preset_is_locked(rgb, expected):
+    """The videos were graded with this preset; changing it would silently change their look."""
+    assert looklut.look(*rgb, looklut.PRESETS["vibrant"]) == pytest.approx(expected, abs=1e-5)
